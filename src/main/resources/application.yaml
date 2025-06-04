@@ -15,7 +15,7 @@ spring:
           predicates:
             - Path=${app.api-prefix}/auth/**
             - Path=${app.api-prefix}/forgotPassword/**
-            - Path=${app.api-prefix}/user/**
+            - Path=${app.api-prefix}/userManagement/**
           filters:
             - StripPrefix=2
         - id: warehouse_service
