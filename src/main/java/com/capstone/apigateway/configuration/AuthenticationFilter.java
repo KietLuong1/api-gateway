@@ -7,19 +7,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import lombok.experimental.NonFinal;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Component
@@ -30,10 +34,23 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
     IdentityService identityService;
     ObjectMapper objectMapper;
 
+    @NonFinal
+    private String[] publicEndpoints = {
+            "/identity/auth/.*",
+            "/api/v1/dashboard/**"
+    };
+
+    @Value("${app.api-prefix}")
+    @NonFinal
+    private String apiPrefix;
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         log.info("exchange: {}", exchange.getRequest().getLocalAddress());
         log.info("Filter chain: {}", chain);
+
+        if (isPublicEndpoint(exchange.getRequest()))
+            return chain.filter(exchange);
 
         // Get token from authorization header
         List<String> authHeader = exchange.getRequest().getHeaders().get(HttpHeaders.AUTHORIZATION);
@@ -41,6 +58,7 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
             return unauthenticated(exchange.getResponse());
 
         String token = authHeader.getFirst().replace("Bearer ", "");
+        log.warn("token: {}", token);
 
         return identityService.introspect(token).flatMap(introspectResponse -> {
             log.info("Introspect Response: {}", introspectResponse);
@@ -62,7 +80,7 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
 
     Mono<Void> unauthenticated(ServerHttpResponse response) {
         ApiResponse<?> apiResponse = ApiResponse.builder()
-                .code(404)
+                .code(401)
                 .message("Unauthenticated")
                 .build();
 
@@ -78,5 +96,10 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
 
         return response.writeWith(
                 Mono.just(response.bufferFactory().wrap(body.getBytes())));
+    }
+
+    private boolean isPublicEndpoint(ServerHttpRequest request){
+        return Arrays.stream(publicEndpoints)
+                .anyMatch(s -> request.getURI().getPath().matches(apiPrefix + s));
     }
 }
